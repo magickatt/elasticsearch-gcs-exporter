@@ -1,0 +1,44 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: elasticsearch-gcs-exporter
+  labels:
+    app: elasticsearch-gcs-exporter
+spec:
+  template:
+    spec:
+      serviceAccount: elasticsearch-gcs-exporter-serviceaccount
+      containers:
+        - name: elasticsearch-gcs-exporter
+          image: us.gcr.io/project-123456/elasticsearch-gcs-exporter:latest
+          command: [
+            "multielasticdump",
+            "--direction=dump",
+            "--match='^filebeat-.*$'",
+            "--input=https://elasticsearch.namespace:9200",
+            "--ignoreType='mapping,settings,template'",
+            "--output=/mnt/gcs_bucket",
+            "--concurrency 2",
+          ]
+          env: # Sidesteps Elasticsearch CA, can replace with mounted Secret and add --input-ca argument to elasticdump
+            - name: NODE_TLS_REJECT_UNAUTHORIZED
+              value: "0"
+          securityContext:
+            privileged: true
+            capabilities:
+              add:
+                - SYS_ADMIN
+          volumeMounts:
+          - mountPath: /mnt/gcs_bucket
+            name: fuse-placeholder
+          lifecycle: # https://karlstoney.com/2017/03/01/fuse-mount-in-kubernetes/
+            postStart:
+              exec:
+                command: ["gcsfuse", "elasticsearch-exporter-bucket", "/mnt/gcs_bucket"]
+            preStop:
+              exec:
+                command: ["fusermount", "-u", "/mnt/gcs_bucket"]
+      restartPolicy: Never
+      volumes:
+      - name: fuse-placeholder
+        emptyDir: {}
